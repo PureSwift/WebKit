@@ -84,6 +84,26 @@ final class WPELibrary: Sendable {
     let userContentManagerAddScript: @convention(c) (Pointer, Pointer) -> Void
     let userContentManagerRemoveAllScripts: @convention(c) (Pointer) -> Void
 
+    // MARK: URI schemes
+
+    let webViewGetContext: @convention(c) (Pointer) -> Pointer?
+    let webContextRegisterURIScheme: @convention(c) (Pointer, CString, UnsafeRawPointer, Pointer?, Pointer?) -> Void
+    let webContextGetSecurityManager: @convention(c) (Pointer) -> Pointer?
+    let securityManagerRegisterURISchemeAsSecure: @convention(c) (Pointer, CString) -> Void
+    let securityManagerRegisterURISchemeAsCORSEnabled: @convention(c) (Pointer, CString) -> Void
+    let uriSchemeRequestGetURI: @convention(c) (Pointer) -> CString?
+    let uriSchemeRequestGetPath: @convention(c) (Pointer) -> CString?
+    let uriSchemeRequestGetWebView: @convention(c) (Pointer) -> Pointer?
+    let uriSchemeRequestGetHTTPMethod: @convention(c) (Pointer) -> CString?
+    let uriSchemeRequestGetHTTPHeaders: @convention(c) (Pointer) -> Pointer?
+    let uriSchemeRequestGetHTTPBody: @convention(c) (Pointer) -> Pointer?
+    let uriSchemeRequestFinishWithResponse: @convention(c) (Pointer, Pointer) -> Void
+    let uriSchemeRequestFinishError: @convention(c) (Pointer, Pointer) -> Void
+    let uriSchemeResponseNew: @convention(c) (Pointer, Int64) -> Pointer?
+    let uriSchemeResponseSetStatus: @convention(c) (Pointer, UInt32, CString?) -> Void
+    let uriSchemeResponseSetContentType: @convention(c) (Pointer, CString) -> Void
+    let uriSchemeResponseSetHTTPHeaders: @convention(c) (Pointer, Pointer) -> Void
+
     // MARK: Navigation policy
 
     let navigationPolicyDecisionGetNavigationAction: @convention(c) (Pointer) -> Pointer?
@@ -116,6 +136,21 @@ final class WPELibrary: Sendable {
     let errorFree: @convention(c) (Pointer) -> Void
     let quarkToString: @convention(c) (UInt32) -> CString?
     let paramSpecGetName: @convention(c) (Pointer) -> CString?
+    let bytesNew: @convention(c) (UnsafeRawPointer?, Int) -> Pointer?
+    let bytesUnref: @convention(c) (Pointer) -> Void
+    let errorNewLiteral: @convention(c) (UInt32, Int32, CString) -> Pointer?
+    let quarkFromString: @convention(c) (CString) -> UInt32
+
+    // MARK: GIO's streams, for bodies
+
+    let memoryInputStreamNewFromBytes: @convention(c) (Pointer) -> Pointer?
+    let inputStreamRead: @convention(c) (Pointer, Pointer, Int, Pointer?, UnsafeMutablePointer<Pointer?>?) -> Int
+
+    // MARK: libsoup's headers
+
+    let soupMessageHeadersNew: @convention(c) (Int32) -> Pointer?
+    let soupMessageHeadersAppend: @convention(c) (Pointer, CString, CString) -> Void
+    let soupMessageHeadersForeach: @convention(c) (Pointer, UnsafeRawPointer, Pointer?) -> Void
 
     // MARK: Constants
 
@@ -123,18 +158,22 @@ final class WPELibrary: Sendable {
     static let visible: UInt32 = 1, focused: UInt32 = 2, inWindow: UInt32 = 4
     /// `WebKitNetworkProxyMode`.
     static let proxyModeDefault: Int32 = 0, proxyModeCustom: Int32 = 2
+    /// `SoupMessageHeadersType`.
+    static let responseHeaders: Int32 = 1
 
     /// The libraries, initialized; nil when WPE WebKit isn't installed.
     static let shared: WPELibrary? = WPELibrary()
 
     private init?() {
+        // GIO and libsoup are WPE WebKit's own dependencies, so they're
+        // there wherever it is.
         let names = ["libwpe-1.0.so.1", "libWPEBackend-fdo-1.0.so.1", "libwayland-server.so.0", "libWPEWebKit-2.0.so.1",
-                     "libglib-2.0.so.0", "libgobject-2.0.so.0"]
+                     "libglib-2.0.so.0", "libgobject-2.0.so.0", "libgio-2.0.so.0", "libsoup-3.0.so.0"]
         // Local, so WPE's libraries, its JavaScriptCore among them, never
         // stand in for others of the same names in the process.
         let libraries = names.map { dlopen($0, RTLD_NOW | RTLD_LOCAL) }
         guard let wpe = libraries[0], let fdo = libraries[1], let wayland = libraries[2], let webkit = libraries[3],
-              let glib = libraries[4], let gobject = libraries[5] else {
+              let glib = libraries[4], let gobject = libraries[5], let gio = libraries[6], let soup = libraries[7] else {
             let absent = zip(names, libraries).filter { $0.1 == nil }.map(\.0)
             WPEEngine.log("WPE WebKit isn't installed (no \(absent.joined(separator: ", ")))")
             return nil
@@ -204,6 +243,24 @@ final class WPELibrary: Sendable {
         userContentManagerAddScript = bind(webkit, "webkit_user_content_manager_add_script")
         userContentManagerRemoveAllScripts = bind(webkit, "webkit_user_content_manager_remove_all_scripts")
 
+        webViewGetContext = bind(webkit, "webkit_web_view_get_context")
+        webContextRegisterURIScheme = bind(webkit, "webkit_web_context_register_uri_scheme")
+        webContextGetSecurityManager = bind(webkit, "webkit_web_context_get_security_manager")
+        securityManagerRegisterURISchemeAsSecure = bind(webkit, "webkit_security_manager_register_uri_scheme_as_secure")
+        securityManagerRegisterURISchemeAsCORSEnabled = bind(webkit, "webkit_security_manager_register_uri_scheme_as_cors_enabled")
+        uriSchemeRequestGetURI = bind(webkit, "webkit_uri_scheme_request_get_uri")
+        uriSchemeRequestGetPath = bind(webkit, "webkit_uri_scheme_request_get_path")
+        uriSchemeRequestGetWebView = bind(webkit, "webkit_uri_scheme_request_get_web_view")
+        uriSchemeRequestGetHTTPMethod = bind(webkit, "webkit_uri_scheme_request_get_http_method")
+        uriSchemeRequestGetHTTPHeaders = bind(webkit, "webkit_uri_scheme_request_get_http_headers")
+        uriSchemeRequestGetHTTPBody = bind(webkit, "webkit_uri_scheme_request_get_http_body")
+        uriSchemeRequestFinishWithResponse = bind(webkit, "webkit_uri_scheme_request_finish_with_response")
+        uriSchemeRequestFinishError = bind(webkit, "webkit_uri_scheme_request_finish_error")
+        uriSchemeResponseNew = bind(webkit, "webkit_uri_scheme_response_new")
+        uriSchemeResponseSetStatus = bind(webkit, "webkit_uri_scheme_response_set_status")
+        uriSchemeResponseSetContentType = bind(webkit, "webkit_uri_scheme_response_set_content_type")
+        uriSchemeResponseSetHTTPHeaders = bind(webkit, "webkit_uri_scheme_response_set_http_headers")
+
         navigationPolicyDecisionGetNavigationAction = bind(webkit, "webkit_navigation_policy_decision_get_navigation_action")
         navigationActionGetRequest = bind(webkit, "webkit_navigation_action_get_request")
         navigationActionGetNavigationType = bind(webkit, "webkit_navigation_action_get_navigation_type")
@@ -230,6 +287,17 @@ final class WPELibrary: Sendable {
         errorFree = bind(glib, "g_error_free")
         quarkToString = bind(glib, "g_quark_to_string")
         paramSpecGetName = bind(gobject, "g_param_spec_get_name")
+        bytesNew = bind(glib, "g_bytes_new")
+        bytesUnref = bind(glib, "g_bytes_unref")
+        errorNewLiteral = bind(glib, "g_error_new_literal")
+        quarkFromString = bind(glib, "g_quark_from_string")
+
+        memoryInputStreamNewFromBytes = bind(gio, "g_memory_input_stream_new_from_bytes")
+        inputStreamRead = bind(gio, "g_input_stream_read")
+
+        soupMessageHeadersNew = bind(soup, "soup_message_headers_new")
+        soupMessageHeadersAppend = bind(soup, "soup_message_headers_append")
+        soupMessageHeadersForeach = bind(soup, "soup_message_headers_foreach")
 
         guard missing.isEmpty else {
             WPEEngine.log("WPE WebKit is incomplete (no \(missing.joined(separator: ", ")))")

@@ -76,8 +76,8 @@ A page gives its host:
 - **The contract**: loading, history, navigation questions and script results
   through `WPEWebContentDelegate`, numbered as AppRuntime numbers them.
 - **More than the contract**: async script calls, user scripts, script message
-  handlers, URL schemes the host answers, the user agent, and navigation
-  answers that come later.
+  handlers and their replies, URL schemes the host answers, the user agent,
+  and navigation answers that come later.
 - **Input**: pointer, smooth scrolling, keys and typed text.
 
 A host answers URLs in schemes of its own, for images, pages or `fetch`:
@@ -98,6 +98,21 @@ Schemes are secure and CORS-enabled, so an `https` page shows their images
 and `fetch` reaches them, and they load while the network isn't allowed.
 WebKit registers a scheme for every page in the process, so a request from
 a page that didn't register it fails.
+
+A page awaits a reply from a handler that replies:
+
+```swift
+content.addScriptMessageHandler("settings", replies: true)
+content.onScriptMessageWithReply = { name, body, reply in
+    reply.returnValue(json: #"{"fontSize":17}"#)
+}
+// In the page:
+// const settings = await window.webkit.messageHandlers.settings.postMessage(null);
+```
+
+The reply's JSON is the value the page's promise resolves to; nil resolves
+it to `undefined`, and `returnError` rejects it. A reply is given once, at
+once or later; one let go, or still owed when its page goes, rejects.
 
 `WPEEngine.onReady` is called from another thread when the pages have work,
 so a host sleeps until then. `WPEEngine.isNetworkAllowed` turns the network

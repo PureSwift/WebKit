@@ -79,6 +79,15 @@ final class WPELibrary: Sendable {
     let webViewGetUserContentManager: @convention(c) (Pointer) -> Pointer?
     let registerScriptMessageHandler: @convention(c) (Pointer, CString, CString?) -> Int32
     let unregisterScriptMessageHandler: @convention(c) (Pointer, CString, CString?) -> Void
+    let registerScriptMessageHandlerWithReply: @convention(c) (Pointer, CString, CString?) -> Int32
+    let scriptMessageReplyRef: @convention(c) (Pointer) -> Pointer?
+    let scriptMessageReplyUnref: @convention(c) (Pointer) -> Void
+    let scriptMessageReplyReturnValue: @convention(c) (Pointer, Pointer) -> Void
+    let scriptMessageReplyReturnErrorMessage: @convention(c) (Pointer, CString) -> Void
+    let valueGetContext: @convention(c) (Pointer) -> Pointer?
+    let valueNewFromJSON: @convention(c) (Pointer, CString) -> Pointer?
+    let valueNewUndefined: @convention(c) (Pointer) -> Pointer?
+    let contextClearException: @convention(c) (Pointer) -> Void
     let userScriptNew: @convention(c) (CString, Int32, Int32, UnsafeRawPointer?, UnsafeRawPointer?) -> Pointer?
     let userScriptUnref: @convention(c) (Pointer) -> Void
     let userContentManagerAddScript: @convention(c) (Pointer, Pointer) -> Void
@@ -238,6 +247,15 @@ final class WPELibrary: Sendable {
         webViewGetUserContentManager = bind(webkit, "webkit_web_view_get_user_content_manager")
         registerScriptMessageHandler = bind(webkit, "webkit_user_content_manager_register_script_message_handler")
         unregisterScriptMessageHandler = bind(webkit, "webkit_user_content_manager_unregister_script_message_handler")
+        registerScriptMessageHandlerWithReply = bind(webkit, "webkit_user_content_manager_register_script_message_handler_with_reply")
+        scriptMessageReplyRef = bind(webkit, "webkit_script_message_reply_ref")
+        scriptMessageReplyUnref = bind(webkit, "webkit_script_message_reply_unref")
+        scriptMessageReplyReturnValue = bind(webkit, "webkit_script_message_reply_return_value")
+        scriptMessageReplyReturnErrorMessage = bind(webkit, "webkit_script_message_reply_return_error_message")
+        valueGetContext = bind(webkit, "jsc_value_get_context")
+        valueNewFromJSON = bind(webkit, "jsc_value_new_from_json")
+        valueNewUndefined = bind(webkit, "jsc_value_new_undefined")
+        contextClearException = bind(webkit, "jsc_context_clear_exception")
         userScriptNew = bind(webkit, "webkit_user_script_new")
         userScriptUnref = bind(webkit, "webkit_user_script_unref")
         userContentManagerAddScript = bind(webkit, "webkit_user_content_manager_add_script")

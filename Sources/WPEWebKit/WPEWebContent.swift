@@ -63,6 +63,12 @@ public final class WPEWebContent {
     /// handler's name and the message as JSON, nil for `undefined`.
     public var onScriptMessage: ((String, String?) -> Void)?
 
+    /// A script posted to a handler that replies, and awaits the reply: the
+    /// handler's name, the message as JSON (nil for `undefined`), and the
+    /// reply to give, at once or later. Without it, the page's promise
+    /// rejects.
+    public var onScriptMessageWithReply: ((String, String?, WPEScriptMessageReply) -> Void)?
+
     /// A request for a URL in one of `urlSchemes`, to finish or fail, at
     /// once or later. Without it, requests fail.
     public var onURLSchemeRequest: ((WPEURLSchemeTask) -> Void)?
@@ -72,6 +78,9 @@ public final class WPEWebContent {
 
     /// Requests not yet answered, failed if the page goes first.
     private var openTasks: [ObjectIdentifier: WeakTask] = [:]
+
+    /// Replies not yet given, rejected if the page goes first.
+    private var openReplies: [ObjectIdentifier: WeakReply] = [:]
 
     // MARK: Making a page
 
@@ -125,6 +134,9 @@ public final class WPEWebContent {
     deinit {
         for task in openTasks.values {
             task.task?.abandon()
+        }
+        for reply in openReplies.values {
+            reply.reply?.abandon()
         }
         if let manager = contentManager {
             for (name, handler) in messageHandlers {
@@ -295,14 +307,28 @@ public final class WPEWebContent {
     }
 
     /// Makes `window.webkit.messageHandlers[name].postMessage` reach
-    /// `onScriptMessage`, from the next load on.
-    public func addScriptMessageHandler(_ name: String) {
-        guard messageHandlers[name] == nil, let manager = contentManager,
-              library.registerScriptMessageHandler(manager, name, nil) != 0 else { return }
+    /// `onScriptMessage`, from the next load on. A handler that replies
+    /// reaches `onScriptMessageWithReply` instead, and `postMessage`
+    /// returns a promise of the reply.
+    public func addScriptMessageHandler(_ name: String, replies: Bool = false) {
+        guard messageHandlers[name] == nil, let manager = contentManager else { return }
         let source = Unmanaged.passRetained(MessageSource(content: self, name: name)).toOpaque()
-        messageHandlers[name] = library.signalConnectData(
-            manager, "script-message-received::\(name)", unsafeBitCast(WPEWebContent.onScriptMessageSignal, to: UnsafeRawPointer.self),
-            source, unsafeBitCast(WPEWebContent.onMessageSourceDestroyed, to: Pointer.self), 0)
+        let destroy = unsafeBitCast(WPEWebContent.onMessageSourceDestroyed, to: Pointer.self)
+        if replies {
+            guard library.registerScriptMessageHandlerWithReply(manager, name, nil) != 0 else {
+                return Unmanaged<MessageSource>.fromOpaque(source).release()
+            }
+            messageHandlers[name] = library.signalConnectData(
+                manager, "script-message-with-reply-received::\(name)",
+                unsafeBitCast(WPEWebContent.onScriptMessageWithReplySignal, to: UnsafeRawPointer.self), source, destroy, 0)
+        } else {
+            guard library.registerScriptMessageHandler(manager, name, nil) != 0 else {
+                return Unmanaged<MessageSource>.fromOpaque(source).release()
+            }
+            messageHandlers[name] = library.signalConnectData(
+                manager, "script-message-received::\(name)", unsafeBitCast(WPEWebContent.onScriptMessageSignal, to: UnsafeRawPointer.self),
+                source, destroy, 0)
+        }
     }
 
     public func removeScriptMessageHandler(_ name: String) {
@@ -788,6 +814,31 @@ public final class WPEWebContent {
         guard let data else { return }
         let source = Unmanaged<MessageSource>.fromOpaque(data).takeUnretainedValue()
         source.content.onScriptMessage?(source.name, value.flatMap { json($0, source.content.library) })
+    }
+
+    /// script-message-with-reply-received: the content manager, the
+    /// message's JSCValue, the WebKitScriptMessageReply and the source; true,
+    /// as it will be answered.
+    private static let onScriptMessageWithReplySignal: @convention(c) (Pointer?, Pointer?, Pointer?, Pointer?) -> Int32 = {
+        _, value, reply, data in
+        guard let data, let reply else { return 0 }
+        let source = Unmanaged<MessageSource>.fromOpaque(data).takeUnretainedValue()
+        source.content.receivedMessage(source.name, value: value, reply: reply)
+        return 1
+    }
+
+    private struct WeakReply {
+        weak var reply: WPEScriptMessageReply?
+    }
+
+    private func receivedMessage(_ name: String, value: Pointer?, reply: Pointer) {
+        let reply = WPEScriptMessageReply(library: library, reply: reply, context: value.flatMap(library.valueGetContext))
+        guard let onScriptMessageWithReply else {
+            return reply.returnError("nothing answers \(name)")
+        }
+        openReplies = openReplies.filter { $0.value.reply?.isAnswered == false }
+        openReplies[ObjectIdentifier(reply)] = WeakReply(reply: reply)
+        onScriptMessageWithReply(name, value.flatMap { WPEWebContent.json($0, library) }, reply)
     }
 
     private static let onMessageSourceDestroyed: @convention(c) (Pointer?, Pointer?) -> Void = { data, _ in

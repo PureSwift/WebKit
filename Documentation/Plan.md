@@ -1,7 +1,8 @@
 # WebKit — Plan
 
 **Status:** a draft for review. Phase 2, URL schemes in `WPEWebKit`, is
-implemented on `feature/url-schemes`; the rest is beyond what "What's here"
+merged (#3), and phase 3, replies to script messages, is implemented on
+`feature/script-message-replies`. The rest is beyond what "What's here"
 lists, as of `ec198ad`.
 
 This package has WPE WebKit pages drawn into Cacao's external surfaces
@@ -136,14 +137,23 @@ page.load(html: renderedArticle, baseURL: article.feedHomePageURL)
 | `jsc_value_get_context`, `jsc_value_new_from_json`, `jsc_value_new_undefined` | Its value |
 
 ```swift
-public func addScriptMessageHandler(_ name: String, replies: Bool)
+public func addScriptMessageHandler(_ name: String, replies: Bool = false)
 public var onScriptMessageWithReply: ((String, String?, WPEScriptMessageReply) -> Void)?
 
 public final class WPEScriptMessageReply {
+    public var isAnswered: Bool
     public func returnValue(json: String?)
     public func returnError(_ message: String)
 }
 ```
+
+As built: the reply refs the message's `JSCContext` as well as WebKit's
+reply, so a reply given later still has a context to make its value in.
+Text that isn't JSON rejects the promise with "the reply isn't JSON" and
+clears the exception the parse left in the context. A reply handler with no
+`onScriptMessageWithReply` rejects with "nothing answers <name>", and a page
+that goes rejects the replies it still owes with "the page went away". A
+name has one handler, one-way or replying.
 
 The handler connects `script-message-with-reply-received::<name>`, whose
 callback also has a `WebKitScriptMessageReply` and returns `TRUE` to say it
@@ -267,8 +277,11 @@ func stopURLSchemeTask(_ content: WebContent, task: Int32)
    host gets the method, headers and body; a page loads from a scheme; a
    request from a page that didn't register it fails. This was all a
    NetNewsWire on Cacao lacked.
-3. **Replies in `WPEWebKit`.** Done when a page's `postMessage` promise
-   resolves with a value and rejects with an error.
+3. **Replies in `WPEWebKit`.** Done on `feature/script-message-replies`: a
+   page's `postMessage` promise resolves with an object, a fragment or
+   `undefined`, and rejects with the host's error, with text that isn't
+   JSON, with no handler, and for a reply let go or owed when the page
+   goes; one-way and replying handlers live side by side.
 4. **`CacaoWebKit`'s API**: `WebPage.Configuration`, `addMessageHandler`.
 5. **The contract's version 2** in AppRuntime and `DynamicWebKit`, then
    LinuxAppRuntime (from this package) and DarwinAppRuntime.

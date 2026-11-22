@@ -63,6 +63,16 @@ public final class WPEWebContent {
     /// handler's name and the message as JSON, nil for `undefined`.
     public var onScriptMessage: ((String, String?) -> Void)?
 
+    /// A request for a URL in one of `urlSchemes`, to finish or fail, at
+    /// once or later. Without it, requests fail.
+    public var onURLSchemeRequest: ((WPEURLSchemeTask) -> Void)?
+
+    /// The schemes this page's host answers, lowercased.
+    public private(set) var urlSchemes: Set<String> = []
+
+    /// Requests not yet answered, failed if the page goes first.
+    private var openTasks: [ObjectIdentifier: WeakTask] = [:]
+
     // MARK: Making a page
 
     /// A page that reports to a delegate, which it keeps; nil where WPE
@@ -99,6 +109,7 @@ public final class WPEWebContent {
             connect("notify::\(property)", unsafeBitCast(WPEWebContent.onNotifySignal, to: UnsafeRawPointer.self))
         }
         WPEWebContent.contents[id] = Weak(self)
+        WPEWebContent.contentsByView[view] = Weak(self)
         WPEEngine.pageCount += 1
     }
 
@@ -112,6 +123,9 @@ public final class WPEWebContent {
     }
 
     deinit {
+        for task in openTasks.values {
+            task.task?.abandon()
+        }
         if let manager = contentManager {
             for (name, handler) in messageHandlers {
                 library.signalHandlerDisconnect(manager, handler)
@@ -123,6 +137,7 @@ public final class WPEWebContent {
         }
         // The slot stays, empty, for a frame still on its way.
         slot.pointee = nil
+        WPEWebContent.contentsByView[view] = nil
         library.objectUnref(view)
         WPEWebContent.contents[id] = nil
         WPEEngine.pageCount -= 1
@@ -136,6 +151,10 @@ public final class WPEWebContent {
     }
 
     nonisolated(unsafe) private static var contents: [Int32: Weak] = [:]
+
+    /// The pages by their `WebKitWebView`, for the requests WebKit makes for
+    /// them.
+    nonisolated(unsafe) private static var contentsByView: [Pointer: Weak] = [:]
 
     nonisolated(unsafe) private static var nextID: Int32 = 1
 
@@ -290,6 +309,72 @@ public final class WPEWebContent {
         guard let handler = messageHandlers.removeValue(forKey: name), let manager = contentManager else { return }
         library.signalHandlerDisconnect(manager, handler)
         library.unregisterScriptMessageHandler(manager, name, nil)
+    }
+
+    // MARK: URL schemes
+
+    /// Makes requests for URLs in `scheme`, such as `app-icon:/a.png`, reach
+    /// `onURLSchemeRequest`. Pages with an `https` URL load them without
+    /// mixed-content blocking, and `fetch` reaches them.
+    ///
+    /// Register a scheme before the page loads what uses it. Returns false
+    /// for a name that isn't a scheme, and for schemes WebKit loads itself,
+    /// such as `https`, `file` and `data`. Schemes are compared lowercased.
+    @discardableResult
+    public func registerURLScheme(_ scheme: String) -> Bool {
+        let scheme = scheme.lowercased()
+        // The whole name is a scheme: nothing after a colon.
+        guard WPEWebContent.scheme(of: scheme + ":") == scheme else { return false }
+        guard !WPEWebContent.reservedSchemes.contains(scheme) else { return false }
+        if !WPEWebContent.registeredSchemes.contains(scheme) {
+            // WebKit keeps a scheme for every page that shares a context,
+            // and can't forget one, so each is registered once, for all.
+            guard let context = library.webViewGetContext(view) else { return false }
+            library.webContextRegisterURIScheme(context, scheme, unsafeBitCast(WPEWebContent.onURISchemeRequest, to: UnsafeRawPointer.self),
+                                                nil, nil)
+            if let security = library.webContextGetSecurityManager(context) {
+                library.securityManagerRegisterURISchemeAsSecure(security, scheme)
+                library.securityManagerRegisterURISchemeAsCORSEnabled(security, scheme)
+            }
+            WPEWebContent.registeredSchemes.insert(scheme)
+        }
+        urlSchemes.insert(scheme)
+        return true
+    }
+
+    /// Schemes WebKit loads itself, which can't be registered.
+    static let reservedSchemes: Set<String> = remoteSchemes.union(["file", "about", "data", "blob", "javascript", "resource"])
+
+    /// The schemes registered in WebKit, for every page.
+    nonisolated(unsafe) private static var registeredSchemes: Set<String> = []
+
+    private struct WeakTask {
+        weak var task: WPEURLSchemeTask?
+    }
+
+    /// A request for one of the pages: to its host, if it registered the
+    /// scheme.
+    private func received(_ request: Pointer) {
+        let task = WPEURLSchemeTask(library: library, request: request)
+        guard let scheme = WPEWebContent.scheme(of: task.url), urlSchemes.contains(scheme) else {
+            return task.fail(.notPermitted, message: "this page doesn't load \(task.url)")
+        }
+        guard let onURLSchemeRequest else {
+            return task.fail(.badURL, message: "nothing answers \(task.url)")
+        }
+        openTasks = openTasks.filter { $0.value.task?.isFinished == false }
+        openTasks[ObjectIdentifier(task)] = WeakTask(task: task)
+        onURLSchemeRequest(task)
+    }
+
+    /// `WebKitURISchemeRequestCallback`, for every scheme: the request goes
+    /// to the page whose view made it.
+    private static let onURISchemeRequest: @convention(c) (Pointer?, Pointer?) -> Void = { request, _ in
+        guard let request, let library = WPELibrary.shared else { return }
+        guard let view = library.uriSchemeRequestGetWebView(request), let content = contentsByView[view]?.content else {
+            return WPEURLSchemeTask(library: library, request: request).fail(.notPermitted, message: "no page made this request")
+        }
+        content.received(request)
     }
 
     // MARK: Settings

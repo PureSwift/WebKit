@@ -103,6 +103,9 @@ extension WPEWebContent {
                 self = error.code == 24 ? .timedOut : .network
             case "g-tls-error-quark":
                 self = .security
+            case WPEURLSchemeTask.errorDomain:
+                // A host's own failure, from a URL scheme it answers.
+                self = ErrorCode(rawValue: Int32(clamping: error.code)) ?? .unknown
             default:
                 self = .unknown
             }

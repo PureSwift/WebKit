@@ -99,4 +99,13 @@ struct Page {
         try wait(for: "the script") { outcome != nil }
         return try outcome!.get()
     }
+
+    /// Runs a script as an async function's body and waits for what it
+    /// returns, as JSON.
+    func callAsync(_ body: String) throws -> String? {
+        var outcome: Result<String?, WPEError>?
+        content.callAsyncJavaScript(body) { outcome = $0 }
+        try wait(for: "the function") { outcome != nil }
+        return try outcome!.get()
+    }
 }

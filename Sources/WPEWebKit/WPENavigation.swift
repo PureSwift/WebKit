@@ -10,15 +10,8 @@ public enum WPELoadEvent: Int32, Hashable, Sendable {
     case finished = 3
 }
 
-/// What of a page changed, by the property WPE WebKit notifies.
-public enum WPEPageProperty: String, Hashable, Sendable {
-    case title
-    case uri
-    case isLoading = "is-loading"
-    case estimatedLoadProgress = "estimated-load-progress"
-}
-
-/// A navigation a page asks about before it follows it.
+/// A navigation a page asks about before it follows it, for
+/// `WPEWebContent.onNavigation`.
 public struct WPENavigation: Hashable, Sendable {
 
     /// What set the navigation off: `WebKitNavigationType`.

@@ -74,10 +74,26 @@ public enum WPEEngine {
 
     // MARK: The network
 
-    /// Sends every page's remote loads to a proxy that refuses them, or
-    /// back through the system's proxy settings.
-    public static func setNetworkAllowed(_ allowed: Bool) {
-        guard let library = WPELibrary.shared, let session = library.networkSessionGetDefault() else { return }
+    /// Whether pages may reach the network. While they may not, a remote
+    /// load fails as not permitted, and whatever else a page fetches goes
+    /// through a proxy that refuses it.
+    public static var isNetworkAllowed: Bool {
+        get { state.isNetworkAllowed }
+        set {
+            state.isNetworkAllowed = newValue
+            applyNetworkPolicy()
+        }
+    }
+
+    /// Sets WebKit's proxy to match `isNetworkAllowed`, once per change.
+    static func applyNetworkPolicy() {
+        guard let library = WPELibrary.shared else { return }
+        let allowed = state.isNetworkAllowed
+        // Until the network is first forbidden, WebKit's settings are its
+        // own.
+        guard state.appliedNetwork != allowed, !(allowed && state.appliedNetwork == nil) else { return }
+        guard let session = library.networkSessionGetDefault() else { return }
+        state.appliedNetwork = allowed
         guard !allowed else {
             return library.networkSessionSetProxySettings(session, WPELibrary.proxyModeDefault, nil)
         }
@@ -105,6 +121,8 @@ public enum WPEEngine {
 
     private struct State {
         var pageCount = 0
+        var isNetworkAllowed = true
+        var appliedNetwork: Bool?
         var onPageCountChanged: ((Int) -> Void)?
         var logger: (String) -> Void = { message in
             let line = "WebKit: \(message)\n"

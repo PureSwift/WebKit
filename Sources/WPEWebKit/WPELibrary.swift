@@ -105,6 +105,9 @@ final class WPELibrary: Sendable {
     // MARK: GLib and GObject
 
     let mainContextIteration: @convention(c) (Pointer?, Int32) -> Int32
+    let mainContextAcquire: @convention(c) (Pointer?) -> Int32
+    let mainContextPrepare: @convention(c) (Pointer?, UnsafeMutablePointer<Int32>) -> Int32
+    let mainContextQuery: @convention(c) (Pointer?, Int32, UnsafeMutablePointer<Int32>, UnsafeMutableRawPointer?, Int32) -> Int32
     let signalConnectData: @convention(c) (Pointer, CString, UnsafeRawPointer, Pointer?, Pointer?, Int32) -> UInt
     let signalHandlerDisconnect: @convention(c) (Pointer, UInt) -> Void
     let objectRef: @convention(c) (Pointer) -> Pointer?
@@ -216,6 +219,9 @@ final class WPELibrary: Sendable {
         networkProxySettingsFree = bind(webkit, "webkit_network_proxy_settings_free")
 
         mainContextIteration = bind(glib, "g_main_context_iteration")
+        mainContextAcquire = bind(glib, "g_main_context_acquire")
+        mainContextPrepare = bind(glib, "g_main_context_prepare")
+        mainContextQuery = bind(glib, "g_main_context_query")
         signalConnectData = bind(gobject, "g_signal_connect_data")
         signalHandlerDisconnect = bind(gobject, "g_signal_handler_disconnect")
         objectRef = bind(gobject, "g_object_ref")

@@ -76,8 +76,28 @@ A page gives its host:
 - **The contract**: loading, history, navigation questions and script results
   through `WPEWebContentDelegate`, numbered as AppRuntime numbers them.
 - **More than the contract**: async script calls, user scripts, script message
-  handlers, the user agent, and navigation answers that come later.
+  handlers, URL schemes the host answers, the user agent, and navigation
+  answers that come later.
 - **Input**: pointer, smooth scrolling, keys and typed text.
+
+A host answers URLs in schemes of its own, for images, pages or `fetch`:
+
+```swift
+content.registerURLScheme("app-icon")
+content.onURLSchemeRequest = { task in
+    guard let png = icons[task.path] else {
+        return task.fail(.badURL, message: "no icon at \(task.path)")
+    }
+    task.finish(contentType: "image/png", body: png)
+}
+content.loadHTML("<img src='app-icon:/feed.png'>", baseURL: "https://example.com/")
+```
+
+A task is answered once, at once or later; one let go unanswered fails.
+Schemes are secure and CORS-enabled, so an `https` page shows their images
+and `fetch` reaches them, and they load while the network isn't allowed.
+WebKit registers a scheme for every page in the process, so a request from
+a page that didn't register it fails.
 
 `WPEEngine.onReady` is called from another thread when the pages have work,
 so a host sleeps until then. `WPEEngine.isNetworkAllowed` turns the network
@@ -92,6 +112,8 @@ is. It needs these libraries:
 | `libWPEWebKit-2.0.so.1` | `libwpewebkit-2.0-1` |
 | `libWPEBackend-fdo-1.0.so.1` | `libwpebackend-fdo-1.0-1` |
 | `libwpe-1.0.so.1` | `libwpe-1.0-1` |
+
+GLib, GIO and libsoup 3, which it also opens, come with WPE WebKit.
 
 Frames come in shared memory, without GL. WebKit's main thread is the first
 thread that calls it, and the engine and its pages are for that thread alone.

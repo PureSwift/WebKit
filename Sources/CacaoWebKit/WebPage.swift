@@ -370,6 +370,11 @@ public final class WebPage {
     /// A view shows the page at a size in points and a scale.
     func show(size: CGSize, scale: CGFloat) {
         guard let content else { return }
+        WebPage.show(content, size: size, scale: scale)
+    }
+
+    /// Attaches an engine's page at a size in points and a scale.
+    static func show(_ content: WPEWebContent, size: CGSize, scale: CGFloat) {
         content.attach(width: UInt32(max(1, size.width.rounded())), height: UInt32(max(1, size.height.rounded())), scale: Float(scale))
         WebLoop.pump()
     }
@@ -484,9 +489,12 @@ enum WebLoop {
 
     private static var isStarted = false
 
+    /// Runs the engine's loop from Cacao's, once: unless a host already runs
+    /// it from its own, having set `WPEEngine.onReady`.
     static func start() {
         guard !isStarted else { return }
         isStarted = true
+        guard WPEEngine.onReady == nil else { return }
         WPEEngine.onReady = { HostRuntime.wake() }
         HostRuntime.addWakeHook { WPEEngine.pump() }
     }

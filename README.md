@@ -45,6 +45,30 @@ resources, moves through its history, asks `navigationDecider` before each
 navigation, and evaluates scripts with their values as JSON text.
 `WebView(url:)` shows a URL without a page of the app's own.
 
+A page is made with a configuration: scripts it runs in every document,
+and URL schemes its app answers. Its message handlers can be added at any
+time, and take effect from its next load:
+
+```swift
+var configuration = WebPage.Configuration()
+configuration.userScripts = [WebUserScript(source: articleScript, injectionTime: .atDocumentStart)]
+configuration.urlSchemeHandlers["app-icon"] = { request, respond in
+    respond(.success(WebURLSchemeResponse(contentType: "image/png", body: icons[request.path] ?? [])))
+}
+let page = WebPage(configuration: configuration)
+
+page.addMessageHandler(named: "imageWasClicked") { body in
+    showImage(json: body)
+}
+page.addMessageHandler(named: "settings") { body async throws(WebError) -> String? in
+    #"{"fontSize":17}"#
+}
+```
+
+A one-way handler hears each message as JSON text. One with a
+`replyHandler` returns JSON text that the page's `postMessage` promise
+resolves to, nil for `undefined`, or throws to reject it.
+
 The view takes pointer, wheel, touch, key and text input once it is clicked.
 The engine's loop runs inside Cacao's: nothing polls, and the host's loop
 wakes when a page has work.

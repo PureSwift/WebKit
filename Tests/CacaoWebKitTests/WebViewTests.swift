@@ -80,4 +80,31 @@ struct WebViewTests {
         try wait(for: "the script") { host.scripts[1] != nil }
         #expect(host.scripts[1] == #""Clicked""#)
     }
+
+    @Test func scrollsThePageWithTheWheel() throws {
+        let host = Host()
+        let content = try #require(WPEWebContent(delegate: host))
+        content.loadHTML("<body style='margin: 0'><div style='height: 5000px'></div>", baseURL: nil)
+        try wait(for: "the load") { host.finished }
+        let graph = ViewGraph(rootView: Root(content: content, shown: true))
+        graph.layout(in: CGSize(width: 200, height: 100))
+        _ = graph.displayList()
+        try wait(for: "a frame") { content.surface.pixelSize == CGSize(width: 200, height: 100) }
+
+        var request: Int32 = 0
+        func scrollY() -> String? {
+            request += 1
+            let asked = request
+            content.evaluateJavaScript("window.scrollY", request: asked)
+            _ = WPEEngine.dispatch(for: 5) { host.scripts[asked] != nil }
+            return host.scripts[asked] ?? nil
+        }
+        #expect(scrollY() == "0")
+        let point = CGPoint(x: 100, y: 50)
+        // A notch toward the user moves down the page by one notch's points.
+        #expect(graph.externalScroll(x: 0, y: -1, at: point))
+        try wait(for: "the scroll down") { scrollY() == "\(Int(WebInput.notch))" }
+        #expect(graph.externalScroll(x: 0, y: 1, at: point))
+        try wait(for: "the scroll back") { scrollY() == "0" }
+    }
 }

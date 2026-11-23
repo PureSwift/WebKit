@@ -1,10 +1,9 @@
 # WebKit — Plan
 
-**Status:** a draft for review. Phases 2 to 4, URL schemes and replies
-to script messages in `WPEWebKit` and `CacaoWebKit`'s API, are merged (#3,
-#4, #5). Phase 1 is implemented: `WebView(content:)` here, on
-`feature/web-view-content`, and LinuxAppRuntime over this package on its
-`feature/pureswift-webkit`. Phase 5 is what's left.
+**Status:** a draft for review. Phases 1 to 4 are merged: URL schemes
+and replies to script messages in `WPEWebKit` (#3, #4), `CacaoWebKit`'s API
+(#5), and LinuxAppRuntime on this package, with `WebView(content:)` here
+(#7, PureSwift/LinuxAppRuntime#20). Phase 5 is what's left.
 
 This package has WPE WebKit pages drawn into Cacao's external surfaces
 (`WPEWebKit`) and SwiftUI's `WebView` and `WebPage` on Cacao
@@ -272,7 +271,10 @@ func stopURLSchemeTask(_ content: WebContent, task: Int32)
    drag gesture. Done when `ExampleWeb` runs as before under
    `Scripts/run-app.sh`, and scrolls with the wheel. `CacaoWebKit` needs
    `WebView(content:)`, or `WebPage(content:)`, for a page it didn't make.
-   Implemented: `WebView(content:)` shows a `WPEWebContent` a host made,
+   Done: `ExampleWeb` runs in `linux-app-host` as before, loading
+   swift.org through the guest's `WebPage`, and a wheel notch through
+   Cacao's view graph scrolls a `WebView(content:)` page by the notch and
+   back (`WebViewTests`). `WebView(content:)` shows a `WPEWebContent` a host made,
    attached while on screen, with the view's input; the page's delegate
    stays the host's, so `WebPage(content:)`, which would need it, isn't
    needed. A host that set `WPEEngine.onReady` runs the engine's loop, and

@@ -3,6 +3,10 @@ import PackageDescription
 
 let package = Package(
     name: "WebKit",
+    platforms: [
+        // As Cacao, for development on a Mac.
+        .macOS(.v14),
+    ],
     products: [
         // WPE WebKit's pages, drawn into Cacao's external surfaces.
         .library(name: "WPEWebKit", targets: ["WPEWebKit"]),

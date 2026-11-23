@@ -81,9 +81,10 @@ public final class WPEWebContent {
     /// own loads, as UIWebView's delegate is asked about `loadRequest:`.
     public var asksAboutOwnLoads = false
 
-    /// Each of the main frame's load events, as WebKit gives it, before the
-    /// delegate hears what it means: for a host whose own API tells a
-    /// navigation's start, commit and finish apart.
+    /// Each of the main frame's load events, as WebKit gives it, once the
+    /// delegate has heard what it means (a finished load has stopped
+    /// loading): for a host whose own API tells a navigation's start,
+    /// commit and finish apart.
     public var onLoadEvent: ((WPELoadEvent) -> Void)?
 
     /// A load failed, with WebKit's own error (cancellations and
@@ -594,7 +595,7 @@ public final class WPEWebContent {
     }
 
     private func loadChanged(_ event: WPELoadEvent) {
-        onLoadEvent?(event)
+        defer { onLoadEvent?(event) }
         switch event {
         case .started:
             failed = false

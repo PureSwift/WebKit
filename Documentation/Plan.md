@@ -1,9 +1,10 @@
 # WebKit — Plan
 
-**Status:** a draft for review. Phases 2 and 3, URL schemes and replies
-to script messages in `WPEWebKit`, are merged (#3, #4), and phase 4,
-`CacaoWebKit`'s API, is implemented on `feature/web-page-configuration`.
-The rest is beyond what "What's here" lists, as of `ec198ad`.
+**Status:** a draft for review. Phases 2 to 4, URL schemes and replies
+to script messages in `WPEWebKit` and `CacaoWebKit`'s API, are merged (#3,
+#4, #5). Phase 1 is implemented: `WebView(content:)` here, on
+`feature/web-view-content`, and LinuxAppRuntime over this package on its
+`feature/pureswift-webkit`. Phase 5 is what's left.
 
 This package has WPE WebKit pages drawn into Cacao's external surfaces
 (`WPEWebKit`) and SwiftUI's `WebView` and `WebPage` on Cacao
@@ -271,6 +272,15 @@ func stopURLSchemeTask(_ content: WebContent, task: Int32)
    drag gesture. Done when `ExampleWeb` runs as before under
    `Scripts/run-app.sh`, and scrolls with the wheel. `CacaoWebKit` needs
    `WebView(content:)`, or `WebPage(content:)`, for a page it didn't make.
+   Implemented: `WebView(content:)` shows a `WPEWebContent` a host made,
+   attached while on screen, with the view's input; the page's delegate
+   stays the host's, so `WebPage(content:)`, which would need it, isn't
+   needed. A host that set `WPEEngine.onReady` runs the engine's loop, and
+   Cacao's leaves it. LinuxAppRuntime's `LinuxWebContent` makes a
+   `WPEWebContent` and relays its delegate to the guest's, and
+   `HostWebView` is a `WebView(content:)`; `WPE.swift`, the RGBA copy and
+   the drag gesture are gone. This package declares macOS 14, as Cacao
+   does, so its targets build on a Mac for LinuxAppRuntime's packager.
 2. **URL schemes in `WPEWebKit`.** Done on `feature/url-schemes`: a page
    with an `https` base URL shows an image from a scheme, with the network
    allowed or not; `fetch` gets the status, type, headers and body, and the

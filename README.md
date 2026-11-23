@@ -73,6 +73,19 @@ The view takes pointer, wheel, touch, key and text input once it is clicked.
 The engine's loop runs inside Cacao's: nothing polls, and the host's loop
 wakes when a page has work.
 
+A host that makes the engine's pages itself, with a delegate of its own,
+shows one with `WebView(content:)`, as LinuxAppRuntime shows its apps'
+pages:
+
+```swift
+WebView(content: content)    // a WPEWebContent
+```
+
+The view attaches the page while it is on screen and sends it its input;
+what the page loads, and what it tells its delegate, stay the host's. A host
+that runs the engine's loop from its own, having set `WPEEngine.onReady`,
+keeps it.
+
 ## WPEWebKit
 
 ```swift

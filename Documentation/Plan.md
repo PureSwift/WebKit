@@ -1,9 +1,9 @@
 # WebKit — Plan
 
-**Status:** a draft for review. Phase 2, URL schemes in `WPEWebKit`, is
-merged (#3), and phase 3, replies to script messages, is implemented on
-`feature/script-message-replies`. The rest is beyond what "What's here"
-lists, as of `ec198ad`.
+**Status:** a draft for review. Phases 2 and 3, URL schemes and replies
+to script messages in `WPEWebKit`, are merged (#3, #4), and phase 4,
+`CacaoWebKit`'s API, is implemented on `feature/web-page-configuration`.
+The rest is beyond what "What's here" lists, as of `ec198ad`.
 
 This package has WPE WebKit pages drawn into Cacao's external surfaces
 (`WPEWebKit`) and SwiftUI's `WebView` and `WebPage` on Cacao
@@ -38,8 +38,8 @@ NetNewsWire's article view is the case it's measured against:
   as JSON (`nil` for `undefined`); `callAsyncJavaScript`; navigation
   answers that come later (`onNavigation`); the user agent;
   `isNetworkAllowed`.
-- **`CacaoWebKit.WebPage`** is `DynamicWebKit`'s `WebPage`. What's beyond
-  the contract is reached through `page.content`.
+- **`CacaoWebKit.WebPage`** is `DynamicWebKit`'s `WebPage`. Until phase 4,
+  what's beyond the contract was reached through `page.content`.
 
 ## What's left
 
@@ -99,9 +99,9 @@ page.addMessageHandler(named: "imageWasClicked") { body in
     store.showImage(json: body)
 }
 
-page.addMessageHandler(named: "isReady") { body async throws(WebError) -> String? in
+page.addMessageHandler(named: "isReady", replyHandler: { body async throws(WebError) -> String? in
     "true"
-}
+})
 
 page.load(html: renderedArticle, baseURL: article.feedHomePageURL)
 ```
@@ -282,7 +282,20 @@ func stopURLSchemeTask(_ content: WebContent, task: Int32)
    `undefined`, and rejects with the host's error, with text that isn't
    JSON, with no handler, and for a reply let go or owed when the page
    goes; one-way and replying handlers live side by side.
-4. **`CacaoWebKit`'s API**: `WebPage.Configuration`, `addMessageHandler`.
+4. **`CacaoWebKit`'s API.** Done on `feature/web-page-configuration`:
+   `WebPage(configuration:)` with `userScripts` and `urlSchemeHandlers`
+   (`WebUserScript`, `WebURLSchemeHandler`, `WebURLSchemeRequest`,
+   `WebURLSchemeResponse`), and `addMessageHandler(named:_:)`,
+   `addMessageHandler(named:replyHandler:)` and
+   `removeMessageHandler(named:)`. A replying handler has its own label,
+   `replyHandler:`, or as a trailing closure its signature,
+   `async throws(WebError) -> String?`: a closure such as
+   `{ _ in "true" }` is a one-way handler, and the compiler warns that its
+   string is unused. Handlers added before the engine's page is made, and the
+   configuration, are applied when it is; the page then owns the engine
+   page's message and scheme hooks. Schemes WebKit loads itself are left
+   to it and logged. With no handlers left, WPE WebKit takes
+   `window.webkit` away, as the tests found.
 5. **The contract's version 2** in AppRuntime and `DynamicWebKit`, then
    LinuxAppRuntime (from this package) and DarwinAppRuntime.
 

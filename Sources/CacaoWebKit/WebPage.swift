@@ -65,7 +65,14 @@ public final class WebPage {
     @ObservationIgnored
     public var onFinish: (() -> Void)?
 
-    public init() { }
+    /// What the page was made with: its user scripts and the URL schemes its
+    /// app answers.
+    public let configuration: Configuration
+
+    public init(configuration: Configuration = Configuration()) {
+        self.configuration = configuration
+        schemeHandlers = Dictionary(configuration.urlSchemeHandlers.map { ($0.key.lowercased(), $0.value) }) { first, _ in first }
+    }
 
     isolated deinit {
         receiver.page = nil
@@ -175,11 +182,110 @@ public final class WebPage {
         return try result.get()
     }
 
+    // MARK: Script messages
+
+    /// Makes `window.webkit.messageHandlers[name].postMessage(body)` call
+    /// `handler` with the body as JSON text (nil for `undefined`), from the
+    /// page's next load on. The page's promise resolves to `undefined` at
+    /// once.
+    ///
+    /// ```swift
+    /// page.addMessageHandler(named: "imageWasClicked") { body in
+    ///     store.showImage(json: body)
+    /// }
+    /// ```
+    public func addMessageHandler(named name: String, _ handler: @escaping @MainActor (_ body: String?) -> Void) {
+        addMessageHandler(name, .oneWay(handler))
+    }
+
+    /// Makes `window.webkit.messageHandlers[name].postMessage(body)` return a
+    /// promise of what `replyHandler` returns, as JSON text: nil resolves it
+    /// to `undefined`, and an error rejects it with the error's message.
+    ///
+    /// ```swift
+    /// page.addMessageHandler(named: "settings") { body async throws(WebError) -> String? in
+    ///     #"{"fontSize":17}"#
+    /// }
+    /// ```
+    public func addMessageHandler(named name: String,
+                                  replyHandler: @escaping @MainActor (_ body: String?) async throws(WebError) -> String?) {
+        addMessageHandler(name, .replying(replyHandler))
+    }
+
+    /// From the page's next load on, `window.webkit.messageHandlers[name]`
+    /// is gone.
+    public func removeMessageHandler(named name: String) {
+        guard messageHandlers.removeValue(forKey: name) != nil else { return }
+        made?.removeScriptMessageHandler(name)
+    }
+
+    private enum MessageHandler {
+        case oneWay(@MainActor (String?) -> Void)
+        case replying(@MainActor (String?) async throws(WebError) -> String?)
+
+        var replies: Bool {
+            if case .replying = self { true } else { false }
+        }
+    }
+
+    private func addMessageHandler(_ name: String, _ handler: MessageHandler) {
+        if let existing = messageHandlers[name], existing.replies != handler.replies {
+            // WebKit keeps a name's first kind: it's added again as the other.
+            made?.removeScriptMessageHandler(name)
+            messageHandlers[name] = nil
+        }
+        let isNew = messageHandlers[name] == nil
+        messageHandlers[name] = handler
+        if isNew {
+            made?.addScriptMessageHandler(name, replies: handler.replies)
+        }
+    }
+
+    private func receivedMessage(_ name: String, _ body: String?) {
+        guard case let .oneWay(handler) = messageHandlers[name] else { return }
+        handler(body)
+    }
+
+    private func receivedMessage(_ name: String, _ body: String?, _ reply: WPEScriptMessageReply) {
+        guard case let .replying(handler) = messageHandlers[name] else {
+            return reply.returnError("nothing answers \(name)")
+        }
+        Task { @MainActor in
+            do throws(WebError) {
+                reply.returnValue(json: try await handler(body))
+            } catch {
+                reply.returnError(error.message.isEmpty ? "\(error.code)" : error.message)
+            }
+        }
+    }
+
+    // MARK: URL schemes
+
+    private func receivedRequest(_ task: WPEURLSchemeTask) {
+        let scheme = String(task.url.prefix { $0 != ":" }).lowercased()
+        guard let handler = schemeHandlers[scheme] else {
+            return task.fail(.badURL, message: "nothing answers \(task.url)")
+        }
+        let request = WebURLSchemeRequest(url: task.url, path: task.path, method: task.method, headers: task.headers, body: task.body)
+        handler(request) { result in
+            switch result {
+            case let .success(response):
+                task.finish(status: response.status, contentType: response.contentType, headers: response.headers, body: response.body)
+            case let .failure(error):
+                task.fail(WPEWebContent.ErrorCode(rawValue: error.code.rawValue) ?? .unknown, message: error.message)
+            }
+        }
+    }
+
     // MARK: The engine's page
 
-    /// The engine's page, for what this class doesn't cover: user scripts,
-    /// script messages, the user agent. Asking makes it. Nil where WPE
-    /// WebKit isn't installed.
+    /// The engine's page, for what this class doesn't cover, such as the
+    /// user agent. Asking makes it. Nil where WPE WebKit isn't installed.
+    ///
+    /// The page answers its script messages and URL schemes itself: use
+    /// `addMessageHandler` and `configuration` rather than the engine page's
+    /// `onScriptMessage`, `onScriptMessageWithReply` and
+    /// `onURLSchemeRequest`.
     public var content: WPEWebContent? {
         if let made {
             return made
@@ -188,10 +294,45 @@ public final class WebPage {
         triedMaking = true
         receiver.page = self
         made = WPEWebContent.make(receiver)
-        if made != nil {
+        if let made {
+            configure(made)
             WebLoop.start()
         }
         return made
+    }
+
+    /// Gives the engine's page what it's made with, before anything loads.
+    private func configure(_ content: WPEWebContent) {
+        for script in configuration.userScripts {
+            content.addUserScript(script.source, atDocumentStart: script.injectionTime == .atDocumentStart,
+                                  mainFrameOnly: script.forMainFrameOnly)
+        }
+        for scheme in schemeHandlers.keys.sorted() where !content.registerURLScheme(scheme) {
+            WPEEngine.logger("WebPage: \(scheme) can't be answered by an app")
+        }
+        for (name, handler) in messageHandlers {
+            content.addScriptMessageHandler(name, replies: handler.replies)
+        }
+        // The engine calls on the main thread, where the page lives.
+        content.onScriptMessage = { [weak self] name, body in
+            MainActor.assumeIsolated { self?.receivedMessage(name, body) }
+        }
+        content.onScriptMessageWithReply = { [weak self] name, body, reply in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    return reply.returnError("the page went away")
+                }
+                self.receivedMessage(name, body, reply)
+            }
+        }
+        content.onURLSchemeRequest = { [weak self] task in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    return task.fail(.cancelled, message: "the page went away")
+                }
+                self.receivedRequest(task)
+            }
+        }
     }
 
     /// The engine page's identifier, as AppRuntime's hosts name pages.
@@ -213,6 +354,13 @@ public final class WebPage {
 
     @ObservationIgnored
     private var scripts: [Int32: (Result<String?, WebError>) -> Void] = [:]
+
+    @ObservationIgnored
+    private var messageHandlers: [String: MessageHandler] = [:]
+
+    /// `configuration`'s scheme handlers, by lowercased scheme.
+    @ObservationIgnored
+    private let schemeHandlers: [String: WebURLSchemeHandler]
 
     @ObservationIgnored
     let input = WebInput()

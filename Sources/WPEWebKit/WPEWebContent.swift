@@ -76,6 +76,22 @@ public final class WPEWebContent {
     /// The schemes this page's host answers, lowercased.
     public private(set) var urlSchemes: Set<String> = []
 
+    /// Whether the host's own loads (`load`, `loadHTML`) are asked about
+    /// too, as other navigations are, for a host whose API asks about its
+    /// own loads, as UIWebView's delegate is asked about `loadRequest:`.
+    public var asksAboutOwnLoads = false
+
+    /// Each of the main frame's load events, as WebKit gives it, before the
+    /// delegate hears what it means: for a host whose own API tells a
+    /// navigation's start, commit and finish apart.
+    public var onLoadEvent: ((WPELoadEvent) -> Void)?
+
+    /// A load failed, with WebKit's own error (cancellations and
+    /// navigations a policy stopped included, which the delegate doesn't
+    /// hear) and whether it had committed: for a host that reports errors
+    /// in its own terms.
+    public var onLoadError: ((WPEError, _ committed: Bool) -> Void)?
+
     /// Requests not yet answered, failed if the page goes first.
     private var openTasks: [ObjectIdentifier: WeakTask] = [:]
 
@@ -578,6 +594,7 @@ public final class WPEWebContent {
     }
 
     private func loadChanged(_ event: WPELoadEvent) {
+        onLoadEvent?(event)
         switch event {
         case .started:
             failed = false
@@ -628,8 +645,10 @@ public final class WPEWebContent {
         let navigationType = library.navigationActionGetNavigationType(action)
         if type == 0, expectsOwnNavigation {
             expectsOwnNavigation = false
-            library.policyDecisionUse(decision)
-            return true
+            if !asksAboutOwnLoads {
+                library.policyDecisionUse(decision)
+                return true
+            }
         }
         if let scheme = WPEWebContent.scheme(of: url), WPEWebContent.remoteSchemes.contains(scheme), !WPEEngine.isNetworkAllowed {
             library.policyDecisionIgnore(decision)
@@ -725,9 +744,11 @@ public final class WPEWebContent {
     /// load-failed: the view, the step it failed at, the URI and the
     /// GError; true, as handled.
     private static let onLoadFailedSignal: @convention(c) (Pointer?, Int32, UnsafePointer<CChar>?, Pointer?, Pointer?) -> Int32 = {
-        _, _, _, error, data in
+        _, event, _, error, data in
         guard let content = content(data) else { return 1 }
-        content.loadFailed(error.map(content.library.error) ?? .unknown)
+        let described = error.map(content.library.error) ?? .unknown
+        content.onLoadError?(described, event >= WPELoadEvent.committed.rawValue)
+        content.loadFailed(described)
         return 1
     }
 

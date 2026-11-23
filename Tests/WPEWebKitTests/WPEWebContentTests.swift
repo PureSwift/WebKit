@@ -27,6 +27,46 @@ struct WPEWebContentTests {
         #expect(loaded < finish)
     }
 
+    /// The raw load events come in WebKit's order, ahead of what the
+    /// delegate hears of them.
+    @Test func reportsItsLoadEvents() throws {
+        let page = try Page()
+        var events: [WPELoadEvent] = []
+        page.content.onLoadEvent = { events.append($0) }
+        try page.load(html: "<title>Hello</title>", baseURL: "https://example.invalid/page")
+        try wait(for: "the finish") { events.contains(.finished) }
+        #expect(events == [.started, .committed, .finished])
+    }
+
+    /// A failed load's error comes as WebKit gave it, with whether the load
+    /// had committed.
+    @Test func reportsLoadErrorsAsWebKitGivesThem() throws {
+        let page = try Page()
+        var errors: [(WPEError, Bool)] = []
+        page.content.onLoadError = { errors.append(($0, $1)) }
+        page.content.load("file:///nonexistent/\(UUID().uuidString).html")
+        try wait(for: "the failure") { !errors.isEmpty }
+        #expect(errors.first?.0.domain.isEmpty == false)
+        #expect(errors.first?.1 == false)
+    }
+
+    /// A host that asks about its own loads hears them, as other
+    /// navigations, and can refuse them.
+    @Test func asksAboutItsOwnLoadsWhenItAsks() throws {
+        let page = try Page()
+        page.content.asksAboutOwnLoads = true
+        var asked: [WPENavigation] = []
+        page.content.onNavigation = { navigation, decision in
+            asked.append(navigation)
+            decision.cancel()
+        }
+        page.content.loadHTML("<title>Hello</title>", baseURL: "https://example.invalid/page")
+        try wait(for: "the question") { !asked.isEmpty }
+        WPEEngine.dispatch(for: 0.3) { false }
+        #expect(asked.first?.uri == "https://example.invalid/page")
+        #expect(page.delegate.finishes == 0)
+    }
+
     @Test func identifiesItsPages() throws {
         let first = try Page(), second = try Page()
         #expect(first.content.identifier() != second.content.identifier())

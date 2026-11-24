@@ -103,12 +103,19 @@ public final class WPEWebContent {
 
     /// A page that reports to a delegate, which it keeps; nil where WPE
     /// WebKit isn't installed or can't make a view.
-    public init?(delegate: any WPEWebContentDelegate) {
+    ///
+    /// The page lays out at `width` by `height` points from its first
+    /// load, WPE's own 800 by 600 unless given. A host that knows its
+    /// view's size gives it here: a size given by `attach` reaches the page
+    /// only once it has drawn, which can be after a load has finished and
+    /// its scripts have measured the page.
+    public init?(delegate: any WPEWebContentDelegate, width: UInt32 = 800, height: UInt32 = 600) {
         guard let library = WPELibrary.shared else { return nil }
+        let made = (width: max(width, 1), height: max(height, 1))
         let slot = UnsafeMutablePointer<Pointer?>.allocate(capacity: 1)
         slot.initialize(to: nil)
         // WebKit destroys the exportable when it is done with the backend.
-        guard let exportable = library.exportableCreate(WPEWebContent.client, slot, 800, 600),
+        guard let exportable = library.exportableCreate(WPEWebContent.client, slot, made.width, made.height),
               let backend = library.exportableGetViewBackend(exportable),
               let webBackend = library.webViewBackendNew(backend, unsafeBitCast(WPEWebContent.onBackendDestroyed, to: Pointer.self),
                                                          exportable),
@@ -117,6 +124,7 @@ public final class WPEWebContent {
             return nil
         }
         self.delegate = delegate
+        self.madeSize = made
         self.library = library
         self.exportable = exportable
         self.backend = backend
@@ -142,6 +150,11 @@ public final class WPEWebContent {
     /// As the contract makes one.
     public static func make(_ delegate: any WPEWebContentDelegate) -> WPEWebContent? {
         WPEWebContent(delegate: delegate)
+    }
+
+    /// As the contract makes one, at a view's size in points.
+    public static func make(_ delegate: any WPEWebContentDelegate, width: UInt32, height: UInt32) -> WPEWebContent? {
+        WPEWebContent(delegate: delegate, width: width, height: height)
     }
 
     private func connect(_ signal: String, _ callback: UnsafeRawPointer) {
@@ -445,6 +458,10 @@ public final class WPEWebContent {
 
     public var isAttached: Bool { size != nil }
 
+    /// The size the page was made at, in points, which it has until told
+    /// another.
+    private let madeSize: (width: UInt32, height: UInt32)
+
     /// What the engine was last told of the view's size, or nil for the
     /// size a page is made at.
     private var applied: (width: UInt32, height: UInt32, scale: Float)?
@@ -476,7 +493,7 @@ public final class WPEWebContent {
     /// Tells the engine the view's size, where it has another.
     private func applySize() {
         guard let size else { return }
-        let applied = applied ?? (800, 600, 1)
+        let applied = applied ?? (madeSize.width, madeSize.height, 1)
         if size.scale != applied.scale {
             library.viewBackendDispatchSetDeviceScaleFactor(backend, size.scale)
         }

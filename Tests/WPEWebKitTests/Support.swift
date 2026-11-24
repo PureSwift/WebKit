@@ -85,6 +85,14 @@ struct Page {
         self.content = content
     }
 
+    /// A page made at a view's size.
+    init(width: UInt32, height: UInt32) throws {
+        guard let content = WPEWebContent(delegate: delegate, width: width, height: height) else {
+            throw TimedOut(waitingFor: "a page from WPE WebKit")
+        }
+        self.content = content
+    }
+
     /// Shows markup and waits for the load to finish.
     func load(html: String, baseURL: String? = nil) throws {
         let before = delegate.finishes

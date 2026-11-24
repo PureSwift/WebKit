@@ -281,6 +281,36 @@ struct WPEWebContentTests {
         #expect(page.content.size?.width == 150)
     }
 
+    @Test func laysOutAtTheSizeItIsMadeAt() throws {
+        // Unless given a size, WPE's own.
+        let plain = try Page()
+        try plain.load(html: "<body style='margin: 0'>")
+        #expect(try plain.evaluate("window.innerWidth") == "800")
+        #expect(try plain.evaluate("window.innerHeight") == "600")
+
+        // Given one, the page has it as its first load finishes, before it
+        // is shown or has drawn.
+        let page = try Page(width: 320, height: 400)
+        try page.load(html: "<body style='margin: 8px'><div id=box>Hello</div>")
+        #expect(try page.evaluate("window.innerWidth") == "320")
+        #expect(try page.evaluate("window.innerHeight") == "400")
+        #expect(try page.evaluate("document.getElementById('box').offsetWidth") == "304")
+
+        // Shown at that size and a scale, it keeps the size and draws at
+        // the scale.
+        page.content.attach(width: 320, height: 400, scale: 2)
+        try page.load(html: "<body style='margin: 8px; background: white'><div id=box>Hello</div>")
+        #expect(try page.evaluate("document.getElementById('box').offsetWidth") == "304")
+        try wait(for: "a frame at the scale") { page.content.surface.pixelSize == CGSize(width: 640, height: 800) }
+        #expect(try page.evaluate("window.innerWidth") == "320")
+        #expect(try page.evaluate("window.devicePixelRatio") == "2")
+
+        // And follows the view to another.
+        page.content.resize(width: 200, height: 100, scale: 1)
+        try wait(for: "a frame at the new size") { page.content.surface.pixelSize == CGSize(width: 200, height: 100) }
+        #expect(try page.evaluate("window.innerWidth") == "200")
+    }
+
     @Test func takesPointerAndKeyInput() throws {
         let page = try Page()
         page.content.attach(width: 300, height: 200, scale: 1)
